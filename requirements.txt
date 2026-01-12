@@ -1,0 +1,7 @@
+streamlit
+numpy
+sentence-transformers
+faiss-cpu
+torch
+tqdm
+faster-whisper
