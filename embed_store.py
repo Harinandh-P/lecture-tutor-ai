@@ -1,42 +1,74 @@
-from sentence_transformers import SentenceTransformer
-import faiss
+import os
 import numpy as np
+import faiss
+from sentence_transformers import SentenceTransformer
 
-# Load embedding model (offline after first download)
+# ===============================
+# Paths (STANDARDIZED)
+# ===============================
+CHUNKS_PATH = "data/transcripts/chunks.txt"
+INDEX_PATH = "data/vectors/index.faiss"
+CHUNK_STORE_PATH = "data/vectors/chunks_store.txt"
+
+# ===============================
+# Load embedding model
+# ===============================
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Read chunks
-chunks_path = "data/transcripts/chunks.txt"
-with open(chunks_path, "r", encoding="utf-8") as f:
+# ===============================
+# Load chunks safely
+# ===============================
+if not os.path.exists(CHUNKS_PATH):
+    raise FileNotFoundError(f"Chunks file not found: {CHUNKS_PATH}")
+
+with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
     content = f.read()
 
-# Split chunks by marker
+# ===============================
+# Parse chunks (CHUNK N format)
+# ===============================
 raw_chunks = content.split("CHUNK")
 chunks = []
 
-for chunk in raw_chunks:
-    chunk = chunk.strip()
-    if chunk:
-        lines = chunk.split("\n", 1)
-        if len(lines) == 2:
-            chunks.append(lines[1].strip())
+for block in raw_chunks:
+    block = block.strip()
+    if not block:
+        continue
+
+    lines = block.split("\n", 1)
+    if len(lines) == 2:
+        text = lines[1].strip()
+        if len(text.split()) >= 10:   # safety filter
+            chunks.append(text)
+
+if not chunks:
+    raise ValueError("No valid chunks found to embed.")
 
 print(f"Total chunks loaded: {len(chunks)}")
 
-# Convert chunks to embeddings
-embeddings = model.encode(chunks)
+# ===============================
+# Create embeddings
+# ===============================
+embeddings = model.encode(chunks, show_progress_bar=True)
 
-# Create FAISS index
+# ===============================
+# Build FAISS index
+# ===============================
 dimension = embeddings.shape[1]
 index = faiss.IndexFlatL2(dimension)
 index.add(np.array(embeddings))
 
-# Save index
-faiss.write_index(index, "data/vectors/index.faiss")
+# ===============================
+# Save FAISS index
+# ===============================
+os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
+faiss.write_index(index, INDEX_PATH)
 
-# Save chunks separately (for later retrieval)
-with open("data/vectors/chunks_store.txt", "w", encoding="utf-8") as f:
+# ===============================
+# Save chunks for retrieval
+# ===============================
+with open(CHUNK_STORE_PATH, "w", encoding="utf-8") as f:
     for chunk in chunks:
-        f.write(chunk + "\n---\n")
+        f.write(chunk.strip() + "\n\n")
 
 print("Embeddings stored successfully.")
