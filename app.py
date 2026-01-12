@@ -134,21 +134,24 @@ if st.session_state.processing:
     status = st.empty()
 
     status.write("🎧 Transcribing lecture...")
-    ok, err = run_script("src/transcribe.py")
+    ok, err = run_script("transcribe.py")
     if not ok:
-        st.error(err); st.stop()
+        st.error(err)
+        st.stop()
     progress.progress(33)
 
     status.write("✂️ Creating chunks...")
-    ok, err = run_script("src/chunker.py")
+    ok, err = run_script("chunker.py")
     if not ok:
-        st.error(err); st.stop()
+        st.error(err)
+        st.stop()
     progress.progress(66)
 
     status.write("🧠 Building AI memory...")
-    ok, err = run_script("src/embed_store.py")
+    ok, err = run_script("embed_store.py")
     if not ok:
-        st.error(err); st.stop()
+        st.error(err)
+        st.stop()
     progress.progress(100)
 
     status.success("🎉 Lecture processed successfully!")
@@ -168,7 +171,10 @@ st.markdown('<div class="chat-area">', unsafe_allow_html=True)
 for msg in st.session_state.messages:
 
     if msg["role"] == "user":
-        st.markdown(f'<div class="user-bubble">{msg["content"]}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="user-bubble">{msg["content"]}</div>',
+            unsafe_allow_html=True
+        )
 
     elif msg["role"] == "assistant":
 
@@ -193,7 +199,10 @@ for msg in st.session_state.messages:
         )
 
     else:
-        st.markdown(f'<div class="system-bubble">{msg["content"]}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="system-bubble">{msg["content"]}</div>',
+            unsafe_allow_html=True
+        )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -216,6 +225,9 @@ if user_input:
         if res["full"]:
             reply += " From Lecture (Context): " + res["full"]
 
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": reply
+        })
 
     st.rerun()
