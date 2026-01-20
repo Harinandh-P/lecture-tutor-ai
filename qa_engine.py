@@ -1,56 +1,53 @@
+import os
+import re
 import faiss
 import numpy as np
-import re
 from sentence_transformers import SentenceTransformer
-import os
 
 # ===============================
-# Load embedding model (offline after first download)
+# Base directory (IMPORTANT)
+# ===============================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CHUNKS_PATH = os.path.join(BASE_DIR, "data", "vectors", "chunks_store.txt")
+INDEX_PATH = os.path.join(BASE_DIR, "data", "vectors", "index.faiss")
+
+# ===============================
+# Load embedding model (offline)
 # ===============================
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # ===============================
-# Load chunks + FAISS index safely
+# Global memory (lazy loaded)
 # ===============================
-CHUNKS_PATH = "data/vectors/chunks_store.txt"
-INDEX_PATH = "data/vectors/index.faiss"
-
-chunks = []
+chunks = None
 index = None
 
-if os.path.exists(CHUNKS_PATH) and os.path.exists(INDEX_PATH):
+# ===============================
+# Load FAISS + chunks safely
+# ===============================
+def load_index():
+    global chunks, index
+
+    if chunks is not None and index is not None:
+        return
+
+    if not os.path.exists(CHUNKS_PATH) or not os.path.exists(INDEX_PATH):
+        chunks = []
+        index = None
+        return
+
     with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
         chunks = [c.strip() for c in f.read().split("\n\n") if c.strip()]
+
     index = faiss.read_index(INDEX_PATH)
 
 # ===============================
-# Helper: incomplete question
+# Helpers
 # ===============================
 def is_incomplete_question(q):
-    q = q.strip().lower()
-    return len(q.split()) < 3
+    return len(q.strip().split()) < 3
 
-# ===============================
-# Helper: retrieve best chunk
-# ===============================
-def find_best_chunk(question):
-    if index is None or not chunks:
-        return None
-
-    q_embedding = model.encode([question])
-    _, indices = index.search(np.array(q_embedding), k=1)
-
-    idx = int(indices[0][0])
-
-    # Safety fallback
-    if idx < 0 or idx >= len(chunks):
-        return chunks[0]
-
-    return chunks[idx]
-
-# ===============================
-# Helper: extract best sentence
-# ===============================
 def extract_best_sentence(chunk, question):
     sentences = re.split(r"(?<=[.!?])\s+", chunk)
     q_words = set(question.lower().split())
@@ -59,7 +56,7 @@ def extract_best_sentence(chunk, question):
     best_score = 0
 
     for s in sentences:
-        score = len(q_words.intersection(set(s.lower().split())))
+        score = len(q_words & set(s.lower().split()))
         if score > best_score:
             best_score = score
             best_sentence = s
@@ -67,23 +64,22 @@ def extract_best_sentence(chunk, question):
     return best_sentence.strip()
 
 # ===============================
-# Helper: humanize answer (NO AI)
+# Retrieve best lecture chunk
 # ===============================
-def humanize_answer(sentence):
-    if not sentence:
-        return ""
+def find_best_chunk(question):
+    load_index()
 
-    starters = [
-        "Simply put, ",
-        "In simple terms, ",
-        "From the lecture, we can understand that ",
-        "The lecture explains that "
-    ]
+    if index is None or not chunks:
+        return None
 
-    sentence = sentence.strip()
-    sentence = sentence[0].lower() + sentence[1:] if sentence else sentence
+    q_embedding = model.encode([question])
+    _, indices = index.search(np.array(q_embedding), k=1)
 
-    return starters[0] + sentence
+    idx = int(indices[0][0])
+    if idx < 0 or idx >= len(chunks):
+        return chunks[0]
+
+    return chunks[idx]
 
 # ===============================
 # MAIN ANSWER FUNCTION
@@ -98,7 +94,7 @@ def answer_question(question):
             "full": ""
         }
 
-    # 2️⃣ Retrieve lecture chunk
+    # 2️⃣ Retrieve lecture memory
     best_chunk = find_best_chunk(question)
 
     if not best_chunk:
@@ -108,18 +104,15 @@ def answer_question(question):
         }
 
     # 3️⃣ Extract best sentence
-    best_sentence = extract_best_sentence(best_chunk, question)
+    short_answer = extract_best_sentence(best_chunk, question)
 
-    if not best_sentence:
+    if not short_answer:
         return {
             "short": "This topic is not covered in the lecture.",
             "full": ""
         }
 
-    # 4️⃣ Humanized short answer
-    short_answer = humanize_answer(best_sentence)
-
-    # 5️⃣ Final response
+    # 4️⃣ Final structured response
     return {
         "short": short_answer,
         "full": best_chunk
